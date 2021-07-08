@@ -1,0 +1,90 @@
+#!/bin/bash
+set -e
+
+DATA_DIR="/data"
+BUILD_DIR="/build"
+QT_VERSION=5.15.2
+
+INST_DIR="$DATA_DIR/out/qt5-android-install"
+ANDROID_DIR="$DATA_DIR/files/Android"
+
+ANDROID_SDK="$ANDROID_DIR/Sdk"
+ANDROID_NDK="$ANDROID_DIR/Sdk/ndk/22.1.7171670"
+
+
+# Calculated paths -- do not edit
+
+QT_SOURCES="$BUILD_DIR/qt"
+ANDROID_OPENSSL="$BUILD_DIR/android_openssl"
+SSL_LIBS="$ANDROID_OPENSSL/latest/libs"
+QT_BUILD_DIR="$BUILD_DIR/qt5-build"
+INST_DIR="$BUILD_DIR/qt5-install"
+
+UBUNTU_RELEASE=`lsb_release -s -r`
+
+
+[ -d "$INST_DIR"  ] && rm -rf "$INST_DIR"
+[ -d "$SSL_LIBS"  ] && rm -rf "$SSL_LIBS"
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+if [ ! -d "$ANDROID_OPENSSL" ] ; then
+	git clone https://github.com/KDAB/android_openssl "$ANDROID_OPENSSL"
+fi
+
+if [ ! -d "$QT_SOURCES" ] ; then
+	git clone --recursive "git://code.qt.io/qt/qt5.git" "$QT_SOURCES" -b "$QT_VERSION" --single-branch
+fi
+
+sed -i -E 's/^QMAKE_LIBS_OPENGL_ES2.*/QMAKE_LIBS_OPENGL_ES2 = -lGLESv3/' $QT_SOURCES/qtbase/mkspecs/features/android/default_pre.prf
+
+
+mkdir -p "$SSL_LIBS"
+cd "$SSL_LIBS"
+
+ln ../arm/libcrypto_1_1.so       libcrypto_armeabi-v7a.so
+ln ../arm/libssl_1_1.so          libssl_armeabi-v7a.so
+
+ln ../arm64/libcrypto_1_1.so     libcrypto_arm64-v8a.so
+ln ../arm64/libssl_1_1.so        libssl_arm64-v8a.so
+
+ln ../x86/libcrypto_1_1.so       libcrypto_x86.so
+ln ../x86/libssl_1_1.so          libssl_x86.so
+
+ln ../x86_64/libcrypto_1_1.so    libcrypto_x86_64.so
+ln ../x86_64/libssl_1_1.so       libssl_x86_64.so
+
+
+mkdir -p "$QT_BUILD_DIR" "$INST_DIR"
+cd "$QT_BUILD_DIR"
+
+"$QT_SOURCES/configure" \
+	-xplatform android-clang \
+	-android-ndk-platform android-28 \
+       	-prefix "$INST_DIR" \
+       	-disable-rpath \
+	-nomake tests \
+       	-nomake examples \
+       	-android-ndk "$ANDROID_NDK" \
+       	-android-sdk "$ANDROID_SDK" \
+	-no-warnings-are-errors \
+	-openssl-linked \
+	-opengles3 \
+	-opensource -confirm-license \
+	-recheck-all \
+	-I "$ANDROID_OPENSSL/no-asm/static/include" \
+	-L "$SSL_LIBS" \
+	OPENSSL_INCDIR="$ANDROID_OPENSSL/no-asm/static/include" \
+       	OPENSSL_LIBDIR="$SSL_LIBS"
+
+if [ "$1" != "--nobuild" ] ; then
+	cd "$QT_BUILD_DIR"
+	make -j32
+	make -j32 install
+	cd "$INST_DIR"
+	cp -v $SSL_LIBS/* lib/
+	tar -c --xz -v -f "/data/out/qt-${QT_VERSION}_linux_ubuntu-${UBUNTU_RELEASE}_arm8.tar.xz" *
+fi
+
+

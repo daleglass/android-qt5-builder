@@ -1,0 +1,2 @@
+#!/bin/bash
+podman build . -t vircadia-android-qt-builder:18.04
